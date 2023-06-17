@@ -1,0 +1,264 @@
+---
+title: "Los dos momentos de la inflación en Chile, 2018 - 2023"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+    theme: journal
+    source_code: embed
+runtime: shiny
+---
+
+Durante la pandemia, Chile sufrió una caída de la actividad económica. Para paliar la crisis, llegaron los retiros de las AFPs. Y tiempo después la Guerra en Ucrania. Ambos eventos tuvieron efectos negativos en la inflación. Estos son los dos momentos de la inflación en Chile.
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(dplyr)
+library(leaflet)
+library(viridis)
+library(sf)
+library(WDI)
+library(readr)
+library(readxl)
+library(tidyverse)
+library(forcats)
+library(ggplot2)
+library(ggthemes)
+library(RColorBrewer)
+library(ggfittext)
+library(treemapify)
+library(lubridate)
+library(skimr)
+library(janitor)
+library(kableExtra)
+library(tidyr)
+library(ggiraph)
+library(htmlwidgets)
+library(plotly)
+library(shiny)
+options(scipen=999)
+ui <- fluidPage(
+  verbatimTextOutput("codigo_fuente")
+)
+server <- function(input, output) {
+  output$codigo_fuente <- renderText({
+    # Aquí va tu bloque de código fuente
+    paste0("function miFuncion() {\n\tconsole.log('Hola mundo!');\n}")
+  })
+}
+shinyApp(ui, server)
+```
+
+Column {data-width=650}{.tabset .tabset-fade}
+-----------------------------------------------------------------------
+
+### Evolución de la actividad económica
+
+```{r, fig.width=10,fig.height=7}
+base_final <- read_rds("datos/economia_chile_2018_2023.rds")
+
+eventos <- structure(list(Periodo = c("2020-07-01", "2021-12-01"), 
+                  event = structure(1:2, .Names = c("a","b"), 
+                  .Label = c("Retiros AFPs", "Guerra en Ucrania"), 
+                  class = "factor")), 
+                  row.names = c("a","b"), 
+                  class = "data.frame")
+
+eventos = eventos %>% mutate(Periodo = as.Date.character(Periodo))
+
+#meto nuevos datos del imacec
+
+imacec <- read_excel("datos/IMACEC.xlsx", range ="A3:E66" ) %>%
+  rename(imacec_prod = "2.Producción de bienes",
+         imacec_com = "3.Comercio",
+         imacec_ser = "4.Servicios") %>%
+  mutate(Periodo = as.Date.character(Periodo)) %>%
+  filter(Periodo >= "2018-01-01") %>%
+  filter(Periodo <= "2023-03-01") %>%
+  select(-"1.Imacec")
+
+#UNIR BASES
+
+lista <- list(base_final, imacec) 
+
+base_final <- lista %>% reduce(full_join, by='Periodo')
+
+sombras <- data.frame(xstart = as.Date('2020-03-01'), 
+xend = as.Date('2023-03-01'))
+```
+
+
+```{r, fig.width=10,fig.height=7}
+
+# Definir las fechas de inicio y fin del rectángulo
+fecha_inicio <- as.Date("2020-03-01")
+fecha_fin <- as.Date("2022-03-01")
+
+# Crear el gráfico con el rectángulo gris
+graph1 <- base_final %>%
+  ggplot(aes(x = Periodo)) +
+  geom_line(aes(y = imacec, color = "Inflación General"), linetype = "solid", size = 0.4) +
+  geom_line(aes(y = imacec_nm, color = "No Minero"), linetype = "twodash", size = 0.3) +
+  geom_line(aes(y = imacec_prod, color = "Prod. Bienes"), linetype = "twodash", size = 0.3) +
+  geom_line(aes(y = imacec_com, color = "Comercio"), linetype = "longdash", size = 0.3) +
+  geom_line(aes(y = imacec_ser, color = "Servicio"), linetype = "longdash", size = 0.3) +
+  geom_rect(
+    xmin = fecha_inicio, xmax = fecha_fin, ymin = -Inf, ymax = Inf,
+    fill = "gray80", alpha = 0.5
+  ) +  # Agregar el rectángulo gris
+  geom_vline(xintercept = as.numeric(base_final$Periodo[32]), linetype = "longdash", size = 0.15) +
+  geom_vline(xintercept = as.numeric(base_final$Periodo[36]), linetype = "longdash", size = 0.15) +
+  geom_vline(xintercept = as.numeric(base_final$Periodo[40]), linetype = "longdash", size = 0.15) +
+  geom_vline(xintercept = as.numeric(base_final$Periodo[50]), linetype = "twodash", size = 0.15) +
+  geom_text(
+    data = eventos,
+    mapping = aes(x = Periodo, y = c(42, 42), label = event),
+    inherit.aes = FALSE,
+    hjust = 0.8,
+    color = "red",
+    size = 2.3
+  ) +
+  scale_x_date(date_labels = "%b %y", date_breaks = "4 month") +
+  scale_y_continuous(n.breaks = 7) +
+  theme_light() +
+  labs(
+    title = "Evolución del IMACEC y sus componentes",
+    subtitle = "2018-2023",
+    caption = "Fuente: Banco Central. El área sombreada denota el inicio de la pandemia.",
+    x = "Periodo",
+    y = "IMACEC (var. mismo periodo año anterior)"
+  ) +
+  theme(
+    legend.title = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.caption.position = "plot"
+  ) +
+  scale_color_manual(values = c("red", "black", "blue", "green", "orange")) +
+  labs(color = "")
+
+ggplotly(graph1)
+
+```
+
+### ¿Cómo se ha comportado la inflación?
+
+```{r, fig.width=10,fig.height=7}
+
+plot <- base_final %>%
+  ggplot(aes(x = Periodo)) +
+  geom_line(aes(y=inflacion, color= "Inflación General"), linetype = "solid", size = 0.4)+
+  geom_line(aes(y=inflacion_a, color= "Alimentos"), linetype = "twodash", size = 0.3)+
+  geom_line(aes(y=inflacion_e, color= "Energía"), linetype = "twodash", size = 0.3)+
+  geom_line(aes(y = inflacion_sv, color = "Sin volátiles"),linetype = "longdash", size = 0.3)+
+  geom_line(aes(y = inflacion_v, color = "Volátiles"),linetype = "longdash", size = 0.3)+
+  geom_line(aes(y=TPM, color= "TPM"), linetype = "solid", size = 0.4) +
+  geom_vline(xintercept = as.numeric(base_final$Periodo[32]), linetype = "longdash", size = 0.15) +
+  geom_vline(xintercept = as.numeric(base_final$Periodo[36]), linetype = "longdash", size = 0.15) +
+  geom_vline(xintercept = as.numeric(base_final$Periodo[40]), linetype = "longdash", size = 0.15) +
+  geom_vline(xintercept = as.numeric(base_final$Periodo[50]), linetype = "twodash", size = 0.15) +
+  geom_text(data = eventos, 
+              mapping = aes(x = Periodo, y = c(42, 42), label = event),
+              inherit.aes = FALSE,
+              hjust = 0.8,
+              color = "red",
+              size = 2.3) +
+  geom_rect(aes(xmin = as.Date('2020-03-01'), xmax = as.Date('2023-03-01'), ymin = -Inf, ymax = Inf), alpha = 0.0099) +
+  geom_hline(yintercept = 0, linetype = "solid", size=0.08)+
+  scale_x_date(date_labels = "%b %y", date_breaks = "4 month")+
+  scale_y_continuous(n.breaks = 7) +
+  theme_light()+
+  labs(title = "Línea de Tiempo de la Inflación",
+       subtitle = "2018-2023",
+       caption ="Fuente: Banco Central. El área sombreada denota el inicio de la pandemia.",
+       x = "Periodo",
+       y = "Inflación y TPM (%)")+
+  theme(legend.title = element_blank(),
+        axis.text.x = element_text(angle=45, hjust=1),
+        plot.caption.position = "plot")+
+  scale_color_manual(values = c("red","blue","black","green","lightblue","purple"))+
+  labs(color="")
+
+ggplotly(plot)
+
+```
+
+### Dinámica de otros indicadores
+
+```{r, fig.width=10,fig.height=7}
+plot2 <- base_final %>%
+  ggplot(aes(x = Periodo)) +
+  geom_line(aes(y = inflacion, color = "Inflación General"), linetype = "solid", size = 0.4) +
+  geom_line(aes(y = dolar, color = "Variación del Dólar"), linetype = "solid", size = 0.3) +
+  geom_line(aes(y = cobre, color = "Cobre"), linetype = "twodash", size = 0.3) +
+  geom_line(aes(y = kerosene, color = "Kerosene"), linetype = "twodash", size = 0.3) +
+  geom_line(aes(y = brent, color = "Brent (derivado del Petróleo)"), linetype = "twodash", size = 0.3) +
+  geom_vline(xintercept = as.numeric(base_final$Periodo[32]), linetype = "longdash", size = 0.15) +
+  geom_vline(xintercept = as.numeric(base_final$Periodo[36]), linetype = "longdash", size = 0.15) +
+  geom_vline(xintercept = as.numeric(base_final$Periodo[40]), linetype = "longdash", size = 0.15) +
+  geom_vline(xintercept = as.numeric(base_final$Periodo[50]), linetype = "twodash", size = 0.15) +
+  geom_text(data = eventos,
+            mapping = aes(x = Periodo, y = c(185, 185), label = event),
+            inherit.aes = FALSE,
+            hjust = 0.8,
+            color = "red",
+            size = 2.3) +
+  geom_rect(aes(xmin = as.Date('2020-03-01'), xmax = as.Date('2023-03-01'), ymin = -Inf, ymax = Inf), alpha = 0.0099) +
+  geom_hline(yintercept = 0, linetype = "solid", size = 0.08) +
+  scale_x_date(date_labels = "%b %y", date_breaks = "4 months") +
+  scale_y_continuous(n.breaks = 7) +
+  theme_light() +
+  labs(title = "Evolución de la Inflación y otros componentes",
+       subtitle = "2018-2023",
+       caption = "Fuente: Banco Central.",
+       x = "Periodo",
+       y = "Var.del mismo periodo año anterior") +
+  theme(legend.title = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.caption.position = "plot") +
+  scale_color_manual(values = c("red", "blue", "black", "green", "orange"))+
+  labs(color="")
+
+ggplotly(plot2)
+
+```
+
+Column {data-width=650}{.tabset .tabset-fade}
+-----------------------------------------------------------------------
+### Proyección de Inflación 2023 del FMI para Sudámerica
+
+```{r}
+paises <- read_sf(dsn = "datos/Sudamérica/Sudamérica.shp")
+```
+
+```{r}
+inf_sud <- read_xls("datos/inflacion_mundo/inflacion_sud_imf.xls") %>%
+  select("Inflation rate, average consumer prices (Annual percent change)", "2018", "2019", "2020", "2021", "2022", "2023", "2024") %>% 
+  rename(pais = "Inflation rate, average consumer prices (Annual percent change)",
+         ipc_2018 = "2018",
+         ipc_2019 = "2019",
+         ipc_2020 = "2020",
+         ipc_2021 = "2021",
+         ipc_2022 = "2022",
+         ipc_2023 = "2023",
+         ipc_2024 = "2024") %>%
+  mutate(pais = recode(pais,
+                      "Brazil" = "Brasil",
+                      "Peru" = "Perú"))
+```
+
+```{r}
+data_mundo <- paises %>% 
+  left_join(inf_sud, by = c("PAÍS" = "pais")) %>% drop_na()
+```
+
+```{r}
+paleta_colores <- colorNumeric(palette = "Reds", domain = -1:15, na.color = "darkred")
+
+data_mundo %>% leaflet(height=500, width= 750) %>%
+  addPolygons(weight = 1, fillColor = ~paleta_colores(ipc_2023),
+              fillOpacity = 1, 
+              label = ~paste0(PAÍS,": ", round(ipc_2023,1),"%"),
+              highlight = highlightOptions(weight = 5, 
+                                           color = "black",
+                                           bringToFront = TRUE))
+```
